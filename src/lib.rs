@@ -9,6 +9,12 @@
 //! - **guard** — a self-cast: spend energy to raise the caster's armor for a few
 //!   seconds.
 //!
+//! Health, damage, cooldowns and costs are not bare literals. The mod declares
+//! once what an *average* unit has (a [`Baseline`], as curves over level) and
+//! writes those numbers as shares of it: `base.damage(pct(18))` is "about six
+//! hits against an average unit", at every level. Retuning the baseline retunes
+//! every one of them.
+//!
 //! Nothing here runs per frame. The mod *describes* its content once, at load, and
 //! the engine interprets those descriptors on the authoritative server. Every
 //! handle below is local to this mod; the host remaps them to global ids when it
@@ -28,6 +34,7 @@ use stormlight_mod_sdk::abi::behaviors::{
 };
 use stormlight_mod_sdk::abi::common::{Affiliation, ImpactTarget, TargetFilter};
 use stormlight_mod_sdk::abi::conditions::Condition;
+use stormlight_mod_sdk::abi::descriptors::Curve;
 use stormlight_mod_sdk::abi::ids::{
     AbilityId, BuffId, DamageTypeId, ParamId, ResourceId, Slot, StatId, UnitId,
 };
@@ -35,6 +42,7 @@ use stormlight_mod_sdk::abi::impacts::{DamageFlags, Impact, SpawnAnchor, SpawnPa
 use stormlight_mod_sdk::abi::math::Value;
 use stormlight_mod_sdk::abi::missiles::{BodyDescriptor, BodyFlags, BodyKind, CollisionSpec};
 use stormlight_mod_sdk::abi::units::{ResourcePool, UnitDescriptor};
+use stormlight_mod_sdk::balance::{Baseline, BaselineSpec, flat, pct, share_of};
 use stormlight_mod_sdk::context::ModContext;
 use stormlight_mod_sdk::register_mod;
 
@@ -48,25 +56,36 @@ register_mod!(|ctx: &mut ModContext| {
     let energy = ctx.resource("energy");
     let arcane = ctx.damage_type("arcane");
 
+    // What an average unit has: the scale health, damage and cooldowns are read on.
+    let base = Baseline::declare(
+        ctx,
+        BaselineSpec {
+            health: Curve { points: vec![[1.0, 500.0], [20.0, 1400.0]] },
+            move_speed: flat(4.5),
+            cooldown: flat(6.0),
+        },
+    );
+
     // `playable` is an engine-reserved capability class: tagging a unit with a
     // tag in it is how a mod says "a player may drive this".
     let (hero, _) = ctx.register_tag_class("hero", "playable");
 
     let guarded = ctx.buff("guarded", guarded(armor));
-    let spark = ctx.ability("spark", spark(cooldown, energy, arcane));
-    let guard = ctx.ability("guard", guard(cooldown, energy, guarded));
+    let spark = ctx.ability("spark", spark(&base, cooldown, energy, arcane));
+    let guard = ctx.ability("guard", guard(&base, cooldown, energy, guarded));
 
     ctx.unit(
         "sentinel",
         UnitDescriptor {
             id: UnitId(0),
-            health: Value::Const(500.0),
-            stats: vec![(move_speed, Value::Const(4.5)), (armor, Value::Const(0.0))],
+            // A little frailer than average, and exactly as quick.
+            health: base.health(pct(90)),
+            stats: vec![(move_speed, base.move_speed(pct(100))), (armor, Value::Const(0.0))],
             tags: vec![hero],
             abilities: vec![(Slot(0), spark), (Slot(1), guard)],
             resources: vec![ResourcePool {
                 id: energy,
-                max: Value::Const(100.0),
+                max: Value::Const(ENERGY),
                 regen: Value::Const(10.0),
             }],
             grant_slots: Vec::new(),
@@ -81,8 +100,17 @@ register_mod!(|ctx: &mut ModContext| {
     );
 });
 
+/// The energy pool. Costs are shares of it, so resizing it keeps every cast
+/// affordable the same number of times.
+const ENERGY: f32 = 100.0;
+
 /// **spark** — throw a missile along the aimed direction.
-fn spark(cooldown: ParamId, energy: ResourceId, arcane: DamageTypeId) -> AbilityDescriptor {
+fn spark(
+    base: &Baseline,
+    cooldown: ParamId,
+    energy: ResourceId,
+    arcane: DamageTypeId,
+) -> AbilityDescriptor {
     let missile = BodyDescriptor {
         kind: BodyKind::Missile {
             speed: Value::Const(18.0),
@@ -91,8 +119,9 @@ fn spark(cooldown: ParamId, energy: ResourceId, arcane: DamageTypeId) -> Ability
             pierce: Value::Const(0.0),
         },
         // What happens to whatever it touches: the payload travels with the body.
+        // About six hits to down an average unit, at any level.
         on_hit: vec![Impact::Damage {
-            amount: Value::Const(90.0),
+            amount: base.damage(pct(18)),
             dtype: arcane,
             target: ImpactTarget::ResolvedTarget,
             flags: DamageFlags::default(),
@@ -115,11 +144,12 @@ fn spark(cooldown: ParamId, energy: ResourceId, arcane: DamageTypeId) -> Ability
 
     AbilityDescriptor {
         id: AbilityId(0),
-        params: Params(vec![(cooldown, Value::Const(3.0))]),
+        // Half the average cooldown: the button pressed most often.
+        params: Params(vec![(cooldown, base.cooldown(pct(50)))]),
         targeting: Targeting::Vector,
         // A short wind-up the caster can walk through: readable, never rooting.
         cast: CastSpec::Cast { time: Value::Const(0.2), movable: true },
-        cost: vec![Cost::Resource { res: energy, amount: Value::Const(25.0) }],
+        cost: vec![Cost::Resource { res: energy, amount: share_of(pct(25), Value::Const(ENERGY)) }],
         on_cast: vec![Impact::Spawn {
             body: missile,
             at: SpawnAnchor::Caster,
@@ -133,13 +163,18 @@ fn spark(cooldown: ParamId, energy: ResourceId, arcane: DamageTypeId) -> Ability
 }
 
 /// **guard** — apply [`guarded`] to the caster.
-fn guard(cooldown: ParamId, energy: ResourceId, guarded: BuffId) -> AbilityDescriptor {
+fn guard(
+    base: &Baseline,
+    cooldown: ParamId,
+    energy: ResourceId,
+    guarded: BuffId,
+) -> AbilityDescriptor {
     AbilityDescriptor {
         id: AbilityId(0),
-        params: Params(vec![(cooldown, Value::Const(10.0))]),
+        params: Params(vec![(cooldown, base.cooldown(pct(160)))]),
         targeting: Targeting::SelfCast,
         cast: CastSpec::Instant,
-        cost: vec![Cost::Resource { res: energy, amount: Value::Const(40.0) }],
+        cost: vec![Cost::Resource { res: energy, amount: share_of(pct(40), Value::Const(ENERGY)) }],
         on_cast: vec![Impact::ApplyModifiers {
             buff: guarded,
             stacks: Value::Const(1.0),

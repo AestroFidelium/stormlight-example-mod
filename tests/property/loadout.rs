@@ -8,9 +8,29 @@
 
 use bolero::{TypeGenerator, check};
 use stormlight_mod_sdk::abi::abilities::Cost;
-use stormlight_mod_sdk::abi::math::Value;
+use stormlight_mod_sdk::abi::math::{BinOp, Value};
 
 use stormlight_mod_example::__stormlight_registration;
+
+/// Fold a level-independent expression to its number. Costs and pools are
+/// declared that way, so a cost reading a level or a stat is itself a mistake.
+fn constant(value: &Value) -> f32 {
+    match value {
+        Value::Const(x) => *x,
+        Value::Bin(op, a, b) => {
+            let (a, b) = (constant(a), constant(b));
+            match op {
+                BinOp::Add => a + b,
+                BinOp::Sub => a - b,
+                BinOp::Mul => a * b,
+                BinOp::Div => a / b,
+                BinOp::Min => a.min(b),
+                BinOp::Max => a.max(b),
+            }
+        }
+        other => panic!("a cost or pool that depends on the game state: {other:?}"),
+    }
+}
 
 #[derive(Debug, TypeGenerator)]
 struct Scenario {
@@ -41,9 +61,7 @@ fn every_bound_ability_exists_and_is_affordable_from_full() {
                 .iter()
                 .find(|p| p.id == res)
                 .unwrap_or_else(|| panic!("ability costs a pool the unit lacks: {res:?}"));
-            let (Value::Const(price), Value::Const(max)) = (amount, pool.max.clone()) else {
-                panic!("the example declares constant costs and pools");
-            };
+            let (price, max) = (constant(&amount), constant(&pool.max));
             assert!(price > 0.0, "a cost that pays nothing");
             assert!(price <= max, "costs {price}, but the pool holds only {max}");
         }

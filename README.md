@@ -36,12 +36,34 @@ mod example v0.1.0 (Server)
   abilities: 2
   talents:   0
   buffs:     1
-  curves:    0
+  curves:    3
   tags:      1 (1 class links)
 ```
 
 `dist/example/` is a complete mod package. Zip its contents to get the `.zip`
 form.
+
+## Balance as shares, not literals
+
+The mod declares once what an average unit has, as curves over level, and
+writes its health, damage, cooldowns and costs as shares of that:
+
+```rust
+let base = Baseline::declare(ctx, BaselineSpec {
+    health: Curve { points: vec![[1.0, 500.0], [20.0, 1400.0]] },
+    move_speed: flat(4.5),
+    cooldown: flat(6.0),
+});
+
+health: base.health(pct(90)),       // a little frailer than average
+amount: base.damage(pct(18)),       // about six hits to down an average unit
+(cooldown, base.cooldown(pct(50))), // half the average cooldown
+```
+
+A share expands to `fraction × curve(level)`, so 90% stays 90% as the unit
+levels, and changing the baseline retunes everything measured against it. A
+test (`tests/property/balance.rs`) keeps any of those numbers from going back to
+a bare literal.
 
 ## Layout
 
@@ -49,7 +71,7 @@ form.
 | --- | --- |
 | `src/lib.rs` | The whole mod: one `register_mod!` closure and three descriptor builders. |
 | `manifest.toml` | Id, kind (`server` = gameplay), wasm entry, and the ABI version. The host reads it before it touches the wasm. |
-| `tests/property/` | [bolero](https://github.com/camshaft/bolero) tests over the registration. Every bound ability exists and is affordable from a full pool, and every missile hits enemies only. |
+| `tests/property/` | [bolero](https://github.com/camshaft/bolero) tests over the registration. Every bound ability exists and is affordable from a full pool, every missile hits enemies only, and every health, damage and cooldown is a share of the baseline. |
 
 The tests call `__stormlight_registration()`, the same builder the wasm export
 runs, so a broken declaration fails in a named test instead of showing up as a
