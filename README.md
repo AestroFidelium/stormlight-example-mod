@@ -14,6 +14,11 @@ public mod pipeline. CI builds it to wasm and loads it into the real engine host
 ([`modload`](https://github.com/AestroFidelium/stormlight-shared)), which runs its
 registration exactly as a server would.
 
+> This repository is a read-only mirror of a private upstream, where development
+> and planning happen. Bug reports and feedback are welcome as
+> [issues](https://github.com/AestroFidelium/stormlight-example-mod/issues); pull requests
+> are disabled.
+
 ## Build and load
 
 Needs stable Rust with the wasm target
