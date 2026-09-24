@@ -1,0 +1,5 @@
+/target
+/dist
+# Resolved against whichever SDK the build saw — the public git repo, or a local
+# checkout patched in (see README). Neither is right to pin for everyone else.
+Cargo.lock

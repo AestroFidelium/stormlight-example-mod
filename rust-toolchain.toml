@@ -1,0 +1,4 @@
+# Mods build on stable: nothing in the SDK needs nightly.
+[toolchain]
+channel = "stable"
+targets = ["wasm32-unknown-unknown"]

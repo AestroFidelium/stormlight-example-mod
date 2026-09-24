@@ -1,0 +1,28 @@
+[package]
+name = "stormlight_mod_example"
+description = "A minimal, complete Stormlight gameplay mod: one unit, a skillshot, a self-buff."
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/AestroFidelium/stormlight-example-mod"
+publish = false
+
+[lib]
+# cdylib is the wasm guest the host loads; rlib lets the native tests link the
+# registration builder and check the descriptors before anything reaches wasm.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+stormlight_mod_sdk = { git = "https://github.com/AestroFidelium/stormlight-sdk.git", branch = "main" }
+
+[dev-dependencies]
+bolero = "0.13"
+
+[[test]]
+name = "property"
+path = "tests/property/main.rs"
+
+# A wasm guest cannot unwind; aborting keeps the module small and well-formed.
+[profile.release]
+panic = "abort"
+opt-level = "s"

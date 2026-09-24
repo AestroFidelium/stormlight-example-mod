@@ -1,0 +1,9 @@
+# The host reads this before it touches the wasm. The staged folder name equals `id`.
+id = "example"
+name = "Example"
+version = "0.1.0"
+# A gameplay mod: it runs on the authoritative server.
+kind = "server"
+entry = "stormlight_mod_example.wasm"
+# The ABI this mod was built against; the host rejects a major mismatch.
+abi = "0.1.0"
